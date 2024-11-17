@@ -1,0 +1,8 @@
+{
+  "name": "SimpleTodoApp",
+  "displayName": "SimpleTodoApp",
+  "expo": {
+    "entryPoint": "./index.js"
+    
+  }
+}
