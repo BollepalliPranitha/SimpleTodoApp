@@ -44,9 +44,13 @@ If everything is set up _correctly_, you should see your new app running in your
 
 This is one way to run your app — you can also run it directly from within Android Studio and Xcode respectively.
 
-##SimpleTodoApplication
+## SimpleTodoApplication
 This is a simple To-Do Application that allows users to add tasks 
+
 Edit Tasks and add the description as needed
+
 Addition and Deletion of tasks is incorporated with few Animations
+
 Toggle option to indicate the completed tasks is provided 
+
 AsyncStorage functionality make it more powerful
