@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
   Text,
@@ -7,198 +7,221 @@ import {
   FlatList,
   TouchableOpacity,
   Animated,
-  Modal,
-  Alert,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-type Task = {
+interface Task {
   id: string;
-  title: string;
-  description: string;
+  text: string;
   completed: boolean;
-};
+  description?: string;
+  animationValue?: Animated.Value;
+}
 
 export default function App() {
-  const [taskTitle, setTaskTitle] = useState('');
-  const [taskDescription, setTaskDescription] = useState('');
+  const [task, setTask] = useState('');
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [editTask, setEditTask] = useState<Task | null>(null);
-  const addAnimation = useRef(new Animated.Value(0)).current; // For adding tasks
-  const deleteAnimations = useRef<{ [key: string]: Animated.Value }>({}).current; // For deleting tasks
-  const [isEditModalVisible, setIsEditModalVisible] = useState(false);
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [editingTaskText, setEditingTaskText] = useState('');
+  const [editingTaskDescription, setEditingTaskDescription] = useState('');
 
+  // Load tasks from AsyncStorage when the app starts
+  useEffect(() => {
+    const loadTasks = async () => {
+      try {
+        const storedTasks = await AsyncStorage.getItem('tasks');
+        if (storedTasks) {
+          setTasks(
+            JSON.parse(storedTasks).map((task: Task) => ({
+              ...task,
+              animationValue: new Animated.Value(1), // Initialize animation value
+            }))
+          );
+        }
+      } catch (error) {
+        console.error('Error loading tasks', error);
+      }
+    };
+
+    loadTasks();
+  }, []);
+
+  // Save tasks to AsyncStorage whenever the tasks array changes
+  useEffect(() => {
+    const saveTasks = async () => {
+      try {
+        await AsyncStorage.setItem('tasks', JSON.stringify(tasks));
+      } catch (error) {
+        console.error('Error saving tasks', error);
+      }
+    };
+
+    saveTasks();
+  }, [tasks]);
+
+  // Add a new task with fade-in animation
   const addTask = () => {
-    if (taskTitle.trim()) {
-      const newTask = {
+    if (task.trim()) {
+      const newTask: Task = {
         id: Date.now().toString(),
-        title: taskTitle,
-        description: taskDescription,
+        text: task,
         completed: false,
+        description: '',
+        animationValue: new Animated.Value(0), // Start with opacity 0
       };
-      deleteAnimations[newTask.id] = new Animated.Value(0); // Initialize animation for task deletion
+      setTasks([...tasks, newTask]);
+      setTask('');
 
-      addAnimation.setValue(0);
-      Animated.timing(addAnimation, {
+      // Trigger fade-in animation
+      Animated.timing(newTask.animationValue!, {
         toValue: 1,
         duration: 500,
         useNativeDriver: true,
-      }).start(() => {
-        setTasks((prevTasks) => [...prevTasks, newTask]);
-      });
-
-      setTaskTitle('');
-      setTaskDescription('');
-    } else {
-      Alert.alert('Error', 'Task title cannot be empty.');
+      }).start();
     }
   };
 
-  const deleteTask = (taskId: string) => {
-    if (deleteAnimations[taskId]) {
-      Animated.timing(deleteAnimations[taskId], {
-        toValue: 300, // Moves task off the screen
-        duration: 300,
-        useNativeDriver: true,
-      }).start(() => {
-        setTasks((prevTasks) => prevTasks.filter((task) => task.id !== taskId));
-        delete deleteAnimations[taskId];
-      });
-    }
-  };
-
-  const editExistingTask = () => {
-    if (editTask) {
-      setTasks((prevTasks) =>
-        prevTasks.map((task) =>
-          task.id === editTask.id
-            ? { ...task, title: taskTitle, description: taskDescription }
-            : task
-        )
-      );
-      setEditTask(null);
-      setIsEditModalVisible(false);
-      setTaskTitle('');
-      setTaskDescription('');
-    }
-  };
-
-  const openEditModal = (task: Task) => {
-    setEditTask(task);
-    setTaskTitle(task.title);
-    setTaskDescription(task.description);
-    setIsEditModalVisible(true);
-  };
-
-  const renderTask = ({ item }: { item: Task }) => {
-    const taskAnimation = deleteAnimations[item.id] || new Animated.Value(0);
-
-    return (
-      <Animated.View
-        style={[
-          styles.taskContainer,
-          {
-            transform: [{ translateX: taskAnimation }],
-          },
-        ]}
-      >
-        <View style={{ flex: 1 }}>
-          <Text
-            style={[
-              styles.taskTitle,
-              item.completed && styles.completedTaskText,
-            ]}
-            onPress={() => toggleTaskCompletion(item.id)}
-          >
-            {item.title}
-          </Text>
-          <Text style={styles.taskDescription}>{item.description}</Text>
-        </View>
-        <View style={styles.taskActions}>
-          <TouchableOpacity
-            style={styles.editButton}
-            onPress={() => openEditModal(item)}
-          >
-            <Text style={styles.editButtonText}>Edit</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.deleteButton}
-            onPress={() => deleteTask(item.id)}
-          >
-            <Text style={styles.deleteButtonText}>Delete</Text>
-          </TouchableOpacity>
-        </View>
-      </Animated.View>
-    );
-  };
-
+  // Toggle task completion status
   const toggleTaskCompletion = (taskId: string) => {
     setTasks((prevTasks) =>
       prevTasks.map((task) =>
-        task.id === taskId ? { ...task, completed: !task.completed } : task
+        task.id === taskId
+          ? { ...task, completed: !task.completed }
+          : task
       )
     );
   };
 
-  const fadeInStyle = {
-    opacity: addAnimation,
+  // Start editing a task
+  const startEditingTask = (taskId: string, taskText: string, taskDescription: string) => {
+    setEditingTaskId(taskId);
+    setEditingTaskText(taskText);
+    setEditingTaskDescription(taskDescription);
   };
+
+  // Cancel editing a task
+  const cancelEditing = () => {
+    setEditingTaskId(null);
+    setEditingTaskText('');
+    setEditingTaskDescription('');
+  };
+
+  // Update a task
+  const updateTask = () => {
+    if (editingTaskId && editingTaskText.trim()) {
+      setTasks((prevTasks) =>
+        prevTasks.map((task) =>
+          task.id === editingTaskId
+            ? { ...task, text: editingTaskText, description: editingTaskDescription }
+            : task
+        )
+      );
+      setEditingTaskId(null);
+      setEditingTaskText('');
+      setEditingTaskDescription('');
+    }
+  };
+
+  // Delete a task with swipe-out animation
+  const deleteTask = (taskId: string) => {
+    const taskToDelete = tasks.find((task) => task.id === taskId);
+
+    if (taskToDelete) {
+      Animated.timing(taskToDelete.animationValue!, {
+        toValue: 0,
+        duration: 500,
+        useNativeDriver: true,
+      }).start(() => {
+        setTasks((prevTasks) => prevTasks.filter((task) => task.id !== taskId));
+      });
+    }
+  };
+
+  // Render each task
+  const renderItem = ({ item }: { item: Task }) => (
+    <Animated.View
+  style={[
+    styles.taskContainer,
+    {
+      opacity: item.animationValue,
+      transform: [{ scale: item.animationValue as Animated.AnimatedInterpolation<number> }],
+    },
+  ]}
+>
+
+      {editingTaskId === item.id ? (
+        <>
+          <TextInput
+            style={styles.editInput}
+            value={editingTaskText}
+            onChangeText={setEditingTaskText}
+            placeholder="Edit task title"
+          />
+          <TextInput
+            style={styles.editInput}
+            value={editingTaskDescription}
+            onChangeText={setEditingTaskDescription}
+            placeholder="Edit task description"
+          />
+          <TouchableOpacity style={styles.saveButton} onPress={updateTask}>
+            <Text style={styles.saveButtonText}>Save</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.cancelButton} onPress={cancelEditing}>
+            <Text style={styles.cancelButtonText}>Cancel</Text>
+          </TouchableOpacity>
+        </>
+      ) : (
+        <>
+          <Text
+            style={[
+              styles.taskText,
+              item.completed && styles.completedTaskText,
+            ]}
+            onPress={() => toggleTaskCompletion(item.id)}
+          >
+            {item.text}
+          </Text>
+          {item.description && (
+            <Text style={styles.taskDescription}>{item.description}</Text>
+          )}
+          <TouchableOpacity
+            style={styles.editButton}
+            onPress={() => startEditingTask(item.id, item.text, item.description || '')}
+          >
+            <Text style={styles.editButtonText}>Edit</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => deleteTask(item.id)}>
+            <Text style={styles.deleteButton}>X</Text>
+          </TouchableOpacity>
+        </>
+      )}
+    </Animated.View>
+  );
+  
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>To-Do List</Text>
+      <Text style={styles.title}>Simple To-Do List</Text>
+
+      {/* Input container */}
       <View style={styles.inputContainer}>
         <TextInput
           style={styles.input}
-          placeholder="Task Title"
-          value={taskTitle}
-          onChangeText={setTaskTitle}
-        />
-        <TextInput
-          style={[styles.input, { marginTop: 10 }]}
-          placeholder="Task Description"
-          value={taskDescription}
-          onChangeText={setTaskDescription}
+          placeholder="Add a new task"
+          value={task}
+          onChangeText={setTask}
         />
         <TouchableOpacity style={styles.addButton} onPress={addTask}>
-          <Text style={styles.addButtonText}>Add</Text>
+          <Text style={styles.addButtonText}>+</Text>
         </TouchableOpacity>
       </View>
-      <Animated.View style={[fadeInStyle, { flex: 1 }]}>
-        <FlatList
-          data={tasks}
-          renderItem={renderTask}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.listContainer}
-        />
-      </Animated.View>
 
-      {/* Edit Modal */}
-      <Modal visible={isEditModalVisible} transparent animationType="slide">
-        <View style={styles.modalContainer}>
-          <Text style={styles.modalTitle}>Edit Task</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Task Title"
-            value={taskTitle}
-            onChangeText={setTaskTitle}
-          />
-          <TextInput
-            style={[styles.input, { marginTop: 10 }]}
-            placeholder="Task Description"
-            value={taskDescription}
-            onChangeText={setTaskDescription}
-          />
-          <TouchableOpacity style={styles.saveButton} onPress={editExistingTask}>
-            <Text style={styles.saveButtonText}>Save</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.cancelButton}
-            onPress={() => setIsEditModalVisible(false)}
-          >
-            <Text style={styles.cancelButtonText}>Cancel</Text>
-          </TouchableOpacity>
-        </View>
-      </Modal>
+      {/* List of tasks */}
+      <FlatList
+        data={tasks}
+        renderItem={renderItem}
+        keyExtractor={(item) => item.id}
+      />
     </View>
   );
 }
@@ -213,110 +236,95 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 24,
     fontWeight: 'bold',
+    color: '#333',
     marginBottom: 20,
   },
   inputContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: 20,
   },
   input: {
+    flex: 1,
     height: 40,
     borderColor: '#ddd',
     borderWidth: 1,
-    marginBottom: 10,
     paddingHorizontal: 10,
     borderRadius: 5,
   },
   addButton: {
     backgroundColor: '#5C5CFF',
-    padding: 10,
-    borderRadius: 5,
+    height: 40,
+    width: 40,
     alignItems: 'center',
-    marginTop: 10,
+    justifyContent: 'center',
+    borderRadius: 20,
+    marginLeft: 10,
   },
   addButtonText: {
     color: 'white',
-    fontSize: 16,
-  },
-  listContainer: {
-    paddingBottom: 20,
+    fontSize: 24,
+    fontWeight: 'bold',
   },
   taskContainer: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
     padding: 10,
     borderBottomColor: '#ddd',
     borderBottomWidth: 1,
-    backgroundColor: '#f9f9f9',
-    borderRadius: 5,
-    marginVertical: 5,
   },
-  taskTitle: {
+  taskText: {
     fontSize: 16,
-    fontWeight: 'bold',
-  },
-  taskDescription: {
-    fontSize: 14,
-    color: '#666',
+    color: '#333',
   },
   completedTaskText: {
     textDecorationLine: 'line-through',
-    color: '#999',
+    color: '#888',
   },
-  taskActions: {
-    flexDirection: 'row',
+  taskDescription: {
+    fontSize: 14,
+    color: '#555',
   },
-  deleteButton: {
-    backgroundColor: '#FF5C5C',
+  editInput: {
+    flex: 1,
+    height: 40,
+    borderColor: '#ddd',
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    borderRadius: 5,
+    marginBottom: 10,
+  },
+  saveButton: {
+    backgroundColor: '#4CAF50',
+    padding: 10,
+    borderRadius: 5,
+    marginRight: 10,
+  },
+  saveButtonText: {
+    color: '#fff',
+  },
+  cancelButton: {
+    backgroundColor: '#FF5722',
+    padding: 10,
+    borderRadius: 5,
+  },
+  cancelButtonText: {
+    color: '#fff',
+  },
+  editButton: {
+    backgroundColor: '#FFC107',
     padding: 5,
     borderRadius: 5,
     marginLeft: 10,
   },
-  deleteButtonText: {
-    color: 'white',
-    fontSize: 14,
-  },
-  editButton: {
-    backgroundColor: '#5CC85C',
-    padding: 5,
-    borderRadius: 5,
-  },
   editButtonText: {
-    color: 'white',
-    fontSize: 14,
+    color: '#fff',
   },
-  modalContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    paddingHorizontal: 20,
-  },
-  modalTitle: {
-    fontSize: 20,
+  deleteButton: {
+    color: '#FF5C5C',
     fontWeight: 'bold',
-    marginBottom: 20,
-    color: 'white',
-    textAlign: 'center',
-  },
-  saveButton: {
-    backgroundColor: '#5CC85C',
-    padding: 10,
-    borderRadius: 5,
-    alignItems: 'center',
-    marginTop: 10,
-  },
-  saveButtonText: {
-    color: 'white',
-    fontSize: 16,
-  },
-  cancelButton: {
-    backgroundColor: '#FF5C5C',
-    padding: 10,
-    borderRadius: 5,
-    alignItems: 'center',
-    marginTop: 10,
-  },
-  cancelButtonText: {
-    color: 'white',
-    fontSize: 16,
+    fontSize: 18,
   },
 });
